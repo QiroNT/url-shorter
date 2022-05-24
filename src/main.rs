@@ -5,10 +5,9 @@ use std::{
   fs::File,
   io::{BufRead, BufReader, BufWriter, Cursor, Seek, SeekFrom, Write},
   mem,
-  str::FromStr,
 };
 
-use tiny_http::{Header, Response, Server, StatusCode};
+use tiny_http::{Header, Method, Response, Server, StatusCode};
 use url::{ParseError, Url};
 use uuid::Uuid;
 
@@ -33,12 +32,12 @@ fn main() {
     let mut data = Vec::new();
 
     // read removed tokens from prm.txt
-    let mut prm: Vec<String> = Vec::new();
+    let mut prm: Vec<u64> = Vec::new();
     let buf = BufReader::new(&prm_file);
     for line in buf.lines() {
       let line = line.unwrap();
-      if let Ok(token) = Uuid::from_str(&line) {
-        prm.push(token.to_string());
+      if let Some(id) = decode_base36(&line) {
+        prm.push(id);
       }
     }
 
@@ -54,20 +53,15 @@ fn main() {
 
     // rewrite data.txt if have pending removals
     if !prm.is_empty() {
-      // filter out removed tokens
-      data = data
-        .into_iter()
-        .map(|(url, token)| {
-          if prm.iter().any(|t| *token == *t) {
-            ("".to_owned(), token)
-          } else {
-            (url, token)
-          }
-        })
-        .collect();
+      // replace removed redirects with empty url
+      for i in prm {
+        data[i as usize].0 = "".to_owned();
+      }
+
       // remove file content
       data_file.set_len(0).unwrap();
       data_file.seek(SeekFrom::Start(0)).unwrap();
+
       // write content to file
       let mut writer = BufWriter::new(&data_file);
       for (url, token) in data.iter() {
@@ -86,26 +80,18 @@ fn main() {
   };
 
   let server = Server::http("0.0.0.0:8000").unwrap();
+  println!("Server listening on http://localhost:8000/");
 
   for request in server.incoming_requests() {
+    let method = request.method();
     let param = &request.url()[1..];
 
-    let mut param_iter = param.chars();
-    let first_char = match param_iter.next() {
-      Some(c) => c,
-      None => {
-        respond_with_error(request, "empty-request", 400);
-        continue;
-      }
-    };
-
     // add new redirect
-    if first_char == '+' {
-      // collect rest into a String
-      let rest = String::from_iter(param_iter);
+    if Method::Post == *method {
+      let url = param.to_owned();
 
       // validate it is a url
-      let url = match Url::parse(&rest) {
+      let url = match Url::parse(&url) {
         Ok(url) => url.to_string(),
         Err(err) => {
           respond_with_error(request, url_parse_error_to_string(err), 400);
@@ -145,39 +131,62 @@ fn main() {
     }
 
     // remove redirect via token
-    if first_char == '-' {
-      // collect rest into a String
-      let rest = String::from_iter(param_iter);
+    if Method::Delete == *method {
+      let rest = param.to_owned();
 
-      // parse token
-      let token = match Uuid::parse_str(&rest) {
-        Ok(token) => token.to_string(),
-        Err(_) => {
+      // parse id && token from input
+      let mut elems = rest.splitn(2, "-");
+      let id_str = match elems.next() {
+        Some(id_str) => id_str,
+        None => {
+          respond_with_error(request, "invalid-id", 400);
+          continue;
+        }
+      };
+      let id = match decode_base36(id_str) {
+        Some(id) => id,
+        None => {
+          respond_with_error(request, "invalid-id", 400);
+          continue;
+        }
+      };
+      let token = match elems.next().and_then(|token| Uuid::parse_str(token).ok()) {
+        Some(token) => token.to_string(),
+        None => {
           respond_with_error(request, "invalid-token", 400);
           continue;
         }
       };
 
       // find index
-      let index = match data
-        .iter()
-        .position(|(url, t)| !url.is_empty() && token == *t)
-      {
-        Some(index) => index,
+      let item = match data.get(id as usize) {
+        Some(item) => item,
         None => {
           respond_with_error(request, "not-found", 400);
           continue;
         }
       };
 
+      // if the token is incorrect, respond as invalid token
+      if item.1 != token {
+        respond_with_error(request, "invalid-token", 400);
+        continue;
+      }
+
+      // if url is empty, respond as not-found
+      // if item.0.is_empty() {
+      //   respond_with_error(request, "not-found", 400);
+      //   continue;
+      // }
+
       // pending removal
-      if writeln!(prm_file, "{}", token).is_err() {
+      if writeln!(prm_file, "{}", id_str).is_err() {
         respond_with_error(request, "write-error", 500);
         continue;
       }
 
       // replace url in data with empty string
-      let (url, _) = mem::replace(&mut data[index], ("".to_owned(), token));
+      let (url, _) = mem::replace(&mut data[id as usize], ("".to_owned(), token));
 
       // respond
       let res = Response::from_string(url);
@@ -198,7 +207,7 @@ fn main() {
       };
 
       // find redirect
-      let url = match data.get(id as usize) {
+      let item = match data.get(id as usize) {
         Some(url) => url,
         None => {
           respond_with_error(request, "not-found", 404);
@@ -207,13 +216,13 @@ fn main() {
       };
 
       // if url is empty, respond as not-found
-      if url.0.is_empty() {
+      if item.0.is_empty() {
         respond_with_error(request, "not-found", 404);
         continue;
       }
 
       // build header
-      let location = match Header::from_bytes(&b"Location"[..], url.0.as_bytes()) {
+      let location = match Header::from_bytes(&b"Location"[..], item.0.as_bytes()) {
         Ok(header) => header,
         Err(_) => {
           respond_with_error(request, "invalid-url", 400);

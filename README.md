@@ -9,7 +9,6 @@ since multi-threading via a `RwLock` on `data` makes processing speed ~30% slowe
 
 ### GET /\[id\]
 
-O(1)\
 Get a redirect by `[id]`.
 
 <details>
@@ -59,9 +58,8 @@ not-found
 
 <br></details>
 
-### GET /+\[url\]
+### POST /\[url\]
 
-O(1)\
 Add a new redirect to `[url]`.
 
 <details>
@@ -130,10 +128,9 @@ write-error
 
 <br></details>
 
-### GET /-\[token\]
+### DELETE /\[id\]-\[token\]
 
-O(n)\
-Remove a redirect by `[token]`.
+Remove a redirect by `[id]` with `[token]`.
 
 <details>
 <summary>200 Success</summary><br>
@@ -156,9 +153,25 @@ Note: Every successful request will cause a file write to `prm.txt`, and a entir
 <br></details>
 
 <details>
+<summary>400 Invalid id</summary><br>
+
+When passing an id with `[^0-9a-zA-Z]` in it, or the id decoded is larger than <code>2<sup>64</sup> − 1</code>,\
+the server will respond as follows:
+
+```http
+HTTP/1.1 400 Bad Request
+Content-Type: text/plain; charset=utf-8
+Content-Length: 10
+
+invalid-id
+```
+
+<br></details>
+
+<details>
 <summary>400 Invalid token</summary><br>
 
-If the token is not a valid UUID,\
+If the token is not a valid UUID or it's not the token of the redirect,\
 the server will respond as follows:
 
 ```http
@@ -174,7 +187,7 @@ invalid-token
 <details>
 <summary>400 Not found</summary><br>
 
-If the token doesn't have a corresponding redirect exists,\
+If the id doesn't have a corresponding redirect exists,\
 the server will respond as follows:
 
 ```http
@@ -207,50 +220,50 @@ write-error
 
 ```bash
 # Adding, heavily depends on I/O speed, so results may vary.
-$ wrk -t1 -c4 -d30s --latency http://localhost:8000/+https://example.com/
-Running 30s test @ http://localhost:8000/+https://example.com/
+$ wrk -t1 -c4 -d30s -s scripts/add.lua --latency http://localhost:8000
+Running 30s test @ http://localhost:8000
   1 threads and 4 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency    88.89us  200.95us  14.92ms   99.90%
-    Req/Sec    47.25k     4.07k   56.67k    69.44%
+    Latency   110.80us  227.23us  15.15ms   99.64%
+    Req/Sec    38.14k     2.40k   45.58k    69.77%
   Latency Distribution
-     50%   82.00us
-     75%   91.00us
-     90%  101.00us
-     99%  114.00us
-  1414910 requests in 30.10s, 261.73MB read
-Requests/sec:  47007.34
-Transfer/sec:      8.70MB
+     50%  102.00us
+     75%  113.00us
+     90%  125.00us
+     99%  161.00us
+  1142094 requests in 30.10s, 211.26MB read
+Requests/sec:  37943.42
+Transfer/sec:      7.02MB
 
-# Querying, `t.lua` is provided on the root directory.
-$ wrk -t1 -c4 -d120s -s t.lua --latency http://localhost:8000
-Running 2m test @ http://localhost:8000
-  1 threads and 4 connections
+# Querying.
+$ wrk -t2 -c6 -d5m -s scripts/query.lua --latency http://localhost:8000
+Running 5m test @ http://localhost:8000
+  2 threads and 6 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency    28.34us   10.09us   3.93ms   94.84%
-    Req/Sec   123.77k     8.03k  148.95k    69.42%
+    Latency    46.00us  105.34us  10.50ms   99.07%
+    Req/Sec    71.60k     5.54k   92.33k    71.10%
   Latency Distribution
-     50%   28.00us
-     75%   30.00us
-     90%   33.00us
-     99%   54.00us
-  14780075 requests in 2.00m, 1.87GB read
-Requests/sec: 123167.10
-Transfer/sec:     15.97MB
+     50%   38.00us
+     75%   43.00us
+     90%   51.00us
+     99%  136.00us
+  42753252 requests in 5.00m, 5.65GB read
+Requests/sec: 142509.47
+Transfer/sec:     19.28MB
 
-# Removing, skipped empty url check, benchmarked against the last redirect (forced O(n), len 1414913).
-$ wrk -t1 -c4 -d30s --latency http://localhost:8000/-5445b937-5157-4caa-a550-af7271bb81b2
-Running 30s test @ http://localhost:8000/-5445b937-5157-4caa-a550-af7271bb81b2
+# Removing, skipped empty url check.
+$ wrk -t1 -c4 -d30s -s scripts/remove.lua --latency http://localhost:8000/O0J3-1b448815-ba6f-496c-8968-3e4a5613902d
+Running 30s test @ http://localhost:8000/O0J3-1b448815-ba6f-496c-8968-3e4a5613902d
   1 threads and 4 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency    38.53ms    1.43ms  47.46ms   80.34%
-    Req/Sec   104.22      5.15   111.00     59.67%
+    Latency    89.80us  183.05us  12.91ms   98.47%
+    Req/Sec    52.89k     2.78k   60.96k    68.67%
   Latency Distribution
-     50%   38.87ms
-     75%   39.64ms
-     90%   39.85ms
-     99%   41.41ms
-  3113 requests in 30.01s, 431.71KB read
-Requests/sec:    103.73
-Transfer/sec:     14.38KB
+     50%   75.00us
+     75%   80.00us
+     90%   90.00us
+     99%  537.00us
+  1579060 requests in 30.00s, 213.84MB read
+Requests/sec:  52631.88
+Transfer/sec:      7.13MB
 ```
