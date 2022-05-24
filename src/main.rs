@@ -2,8 +2,8 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use std::{
-  fs::File,
-  io::{BufRead, BufReader, BufWriter, Cursor, Seek, SeekFrom, Write},
+  fs::{File, self},
+  io::{BufRead, BufReader, BufWriter, Cursor, Write},
   mem,
 };
 
@@ -12,26 +12,25 @@ use url::{ParseError, Url};
 use uuid::Uuid;
 
 fn main() {
-  let mut data_file = File::options()
-    .create(true)
-    .read(true)
-    .write(true)
-    .append(true)
-    .open("data.txt")
-    .unwrap();
-  let mut prm_file = File::options()
-    .create(true)
-    .read(true)
-    .write(true)
-    .append(true)
-    .open("prm.txt")
-    .unwrap();
-
   // (url, token)
   let mut data: Vec<(String, String)> = {
     let mut data = Vec::new();
 
-    // read removed tokens from prm.txt
+    // open data files
+    let data_file = File::options()
+      .create(true)
+      .read(true)
+      .write(true)
+      .open("data.txt")
+      .unwrap();
+    let prm_file = File::options()
+      .create(true)
+      .read(true)
+      .write(true)
+      .open("prm.txt")
+      .unwrap();
+
+    // read removed tokens from `prm.txt`
     let mut prm: Vec<u64> = Vec::new();
     let buf = BufReader::new(&prm_file);
     for line in buf.lines() {
@@ -41,7 +40,7 @@ fn main() {
       }
     }
 
-    // read urls from data.txt
+    // read urls from `data.txt`
     let buf = BufReader::new(&data_file);
     for str in buf.lines().map(|l| l.unwrap()) {
       if str.len() < 36 {
@@ -51,33 +50,58 @@ fn main() {
       data.push((url.to_owned(), token.to_owned()));
     }
 
-    // rewrite data.txt if have pending removals
+    // close files
+    drop(data_file);
+    drop(prm_file);
+
+    // rewrite `data.txt` if have pending removals
     if !prm.is_empty() {
       // replace removed redirects with empty url
       for i in prm {
         data[i as usize].0 = "".to_owned();
       }
 
-      // remove file content
-      data_file.set_len(0).unwrap();
-      data_file.seek(SeekFrom::Start(0)).unwrap();
+      // create a new data file
+      let data2_file = File::options()
+        .create_new(true)
+        .write(true)
+        .append(true)
+        .open("data2.txt")
+        .unwrap();
 
       // write content to file
-      let mut writer = BufWriter::new(&data_file);
+      let mut writer = BufWriter::new(&data2_file);
       for (url, token) in data.iter() {
         writer
           .write_fmt(format_args!("{}{}\n", token, url))
           .unwrap();
       }
       writer.flush().unwrap();
-    }
+      drop(writer);
+      drop(data2_file);
 
-    // empty prm.txt
-    prm_file.set_len(0).unwrap();
-    prm_file.seek(SeekFrom::Start(0)).unwrap();
+      // replace `data.txt` with `data2.txt`
+      fs::rename("data2.txt", "data.txt").unwrap();
+
+      // remove `prm.txt`
+      fs::remove_file("prm.txt").unwrap();
+    }
 
     data
   };
+
+  let mut data_file = File::options()
+    .create(true)
+    .write(true)
+    .append(true)
+    .open("data.txt")
+    .unwrap();
+  let mut prm_file = File::options()
+    .create(true)
+    .write(true)
+    .append(true)
+    .open("prm.txt")
+    .unwrap();
 
   let server = Server::http("0.0.0.0:8000").unwrap();
   println!("Server listening on http://localhost:8000/");
@@ -174,10 +198,10 @@ fn main() {
       }
 
       // if url is empty, respond as not-found
-      // if item.0.is_empty() {
-      //   respond_with_error(request, "not-found", 400);
-      //   continue;
-      // }
+      if item.0.is_empty() {
+        respond_with_error(request, "not-found", 400);
+        continue;
+      }
 
       // pending removal
       if writeln!(prm_file, "{}", id_str).is_err() {
