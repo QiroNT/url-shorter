@@ -224,46 +224,46 @@ $ wrk -t1 -c4 -d30s -s scripts/add.lua --latency http://localhost:8000
 Running 30s test @ http://localhost:8000
   1 threads and 4 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency   110.80us  227.23us  15.15ms   99.64%
-    Req/Sec    38.14k     2.40k   45.58k    69.77%
+    Latency   140.18us    0.96ms  43.06ms   99.57%
+    Req/Sec    39.43k     2.12k   43.70k    75.75%
   Latency Distribution
-     50%  102.00us
-     75%  113.00us
-     90%  125.00us
-     99%  161.00us
-  1142094 requests in 30.10s, 211.26MB read
-Requests/sec:  37943.42
-Transfer/sec:      7.02MB
+     50%   98.00us
+     75%  108.00us
+     90%  120.00us
+     99%  306.00us
+  1181097 requests in 30.10s, 218.47MB read
+Requests/sec:  39240.14
+Transfer/sec:      7.26MB
 
 # Querying.
 $ wrk -t2 -c6 -d5m -s scripts/query.lua --latency http://localhost:8000
 Running 5m test @ http://localhost:8000
   2 threads and 6 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency    46.00us  105.34us  10.50ms   99.07%
-    Req/Sec    71.60k     5.54k   92.33k    71.10%
+    Latency    39.62us   61.09us   6.69ms   99.39%
+    Req/Sec    76.42k     4.93k   95.99k    74.34%
   Latency Distribution
-     50%   38.00us
-     75%   43.00us
-     90%   51.00us
-     99%  136.00us
-  42753252 requests in 5.00m, 5.65GB read
-Requests/sec: 142509.47
-Transfer/sec:     19.28MB
+     50%   36.00us
+     75%   40.00us
+     90%   46.00us
+     99%   76.00us
+  45647931 requests in 5.00m, 6.03GB read
+Requests/sec: 152109.38
+Transfer/sec:     20.58MB
 
 # Removing, skipped empty url check.
-$ wrk -t1 -c4 -d30s -s scripts/remove.lua --latency http://localhost:8000/O0J3-1b448815-ba6f-496c-8968-3e4a5613902d
-Running 30s test @ http://localhost:8000/O0J3-1b448815-ba6f-496c-8968-3e4a5613902d
+$ wrk -t1 -c4 -d30s -s scripts/remove.lua --latency http://localhost:8000/PBCB-a31835ad-a60a-4992-996b-57246fe50b11
+Running 30s test @ http://localhost:8000/PBCB-a31835ad-a60a-4992-996b-57246fe50b11
   1 threads and 4 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency    89.80us  183.05us  12.91ms   98.47%
-    Req/Sec    52.89k     2.78k   60.96k    68.67%
+    Latency    75.86us   70.73us   5.05ms   98.97%
+    Req/Sec    55.36k     3.24k   67.31k    73.75%
   Latency Distribution
-     50%   75.00us
+     50%   70.00us
      75%   80.00us
-     90%   90.00us
-     99%  537.00us
-  1579060 requests in 30.00s, 213.84MB read
-Requests/sec:  52631.88
-Transfer/sec:      7.13MB
+     90%   87.00us
+     99%  152.00us
+  1657242 requests in 30.10s, 224.43MB read
+Requests/sec:  55057.76
+Transfer/sec:      7.46MB
 ```
