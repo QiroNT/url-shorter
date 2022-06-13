@@ -2,7 +2,7 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use std::{
-  fs::{File, self},
+  fs::{self, File},
   io::{BufRead, BufReader, BufWriter, Cursor, Write},
   mem,
 };
@@ -108,7 +108,11 @@ fn main() {
 
   for request in server.incoming_requests() {
     let method = request.method();
-    let param = &request.url()[1..];
+    let param = {
+      let mut chars = request.url().chars();
+      chars.next();
+      chars.as_str()
+    };
 
     // add new redirect
     if Method::Post == *method {
@@ -159,7 +163,7 @@ fn main() {
       let rest = param.to_owned();
 
       // parse id && token from input
-      let mut elems = rest.splitn(2, "-");
+      let mut elems = rest.splitn(2, '-');
       let id_str = match elems.next() {
         Some(id_str) => id_str,
         None => {
@@ -246,7 +250,7 @@ fn main() {
       }
 
       // build header
-      let location = match Header::from_bytes(&b"Location"[..], item.0.as_bytes()) {
+      let location = match Header::from_bytes(b"Location".as_slice(), item.0.as_bytes()) {
         Ok(header) => header,
         Err(_) => {
           respond_with_error(request, "invalid-url", 400);
@@ -265,11 +269,11 @@ fn decode_base36(s: &str) -> Option<u64> {
   let mut result: u64 = 0;
   for c in s.bytes() {
     result = result.checked_mul(36)?;
-    if c >= b'0' && c <= b'9' {
+    if (b'0'..=b'9').contains(&c) {
       result = result.checked_add((c - b'0') as u64)?;
-    } else if c >= b'a' && c <= b'z' {
+    } else if (b'a'..=b'z').contains(&c) {
       result = result.checked_add((c - b'a' + 10) as u64)?;
-    } else if c >= b'A' && c <= b'Z' {
+    } else if (b'A'..=b'Z').contains(&c) {
       result = result.checked_add((c - b'A' + 10) as u64)?;
     } else {
       return None;
