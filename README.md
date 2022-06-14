@@ -1,8 +1,7 @@
 # url-shorter
 
 A simple, low level url shorting service written with [`tiny_http`](https://github.com/tiny-http/tiny-http).\
-The service is single threaded and uses at most 2 cpu cores under normal circumstances,
-since multi-threading via a `RwLock` on `data` makes processing speed ~30% slower under the same cpu usage.\
+The service can scale to around 6 cpu cores under heavy load.\
 **It's just a little side project, data integrity is not guaranteed!**
 
 ## API
@@ -218,52 +217,59 @@ write-error
 
 ## Benchmark
 
+```text
+Operating System: Manjaro Linux
+Kernel Version: 5.15.41-1-MANJARO (64-bit)
+Processors: 12 × AMD Ryzen 5 3600 6-Core Processor
+Memory: 31.3 GiB of RAM
+```
+
 ```bash
 # Adding, heavily depends on I/O speed, so results may vary.
 $ wrk -t1 -c4 -d30s -s scripts/add.lua --latency http://localhost:8000
 Running 30s test @ http://localhost:8000
   1 threads and 4 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency   101.76us  206.94us  14.64ms   99.76%
-    Req/Sec    41.02k     3.96k   48.73k    61.00%
+    Latency    73.31us  202.59us  14.42ms   99.78%
+    Req/Sec    57.67k     5.65k   76.34k    78.41%
   Latency Distribution
-     50%   93.00us
-     75%  109.00us
-     90%  115.00us
-     99%  131.00us
-  1224585 requests in 30.00s, 226.52MB read
-Requests/sec:  40819.18
-Transfer/sec:      7.55MB
+     50%   68.00us
+     75%   74.00us
+     90%   80.00us
+     99%   92.00us
+  1726400 requests in 30.10s, 319.40MB read
+Requests/sec:  57356.90
+Transfer/sec:     10.61MB
 
 # Querying.
-$ wrk -t2 -c6 -d5m -s scripts/query.lua --latency http://localhost:8000
+$ wrk -t4 -c32 -d5m -s scripts/query.lua --latency http://localhost:8000
 Running 5m test @ http://localhost:8000
-  2 threads and 6 connections
+  4 threads and 32 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency    28.88us   23.91us   9.72ms   99.52%
-    Req/Sec    81.57k    16.57k  115.34k    57.36%
+    Latency   253.67us    0.98ms  24.97ms   95.57%
+    Req/Sec    85.21k     7.16k  105.27k    71.77%
   Latency Distribution
-     50%   28.00us
-     75%   30.00us
-     90%   33.00us
-     99%   46.00us
-  48720776 requests in 5.00m, 6.44GB read
-Requests/sec: 162348.70
-Transfer/sec:     21.97MB
+     50%   71.00us
+     75%   84.00us
+     90%  118.00us
+     99%    5.24ms
+  101751428 requests in 5.00m, 13.45GB read
+Requests/sec: 339080.72
+Transfer/sec:     45.88MB
 
 # Removing, skipped empty url check.
-$ wrk -t1 -c4 -d30s -s scripts/remove.lua --latency http://localhost:8000/Q8WB-832e26ce-f139-4bfc-a898-3557dd3830ee
-Running 30s test @ http://localhost:8000/Q8WB-832e26ce-f139-4bfc-a898-3557dd3830ee
+$ wrk -t1 -c4 -d30s -s scripts/remove.lua --latency http://localhost:8000/1103N-502e4050-b291-43cd-95e9-f93919faa41d
+Running 30s test @ http://localhost:8000/1103N-502e4050-b291-43cd-95e9-f93919faa41d
   1 threads and 4 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency    66.76us   48.98us   6.18ms   99.84%
-    Req/Sec    60.40k     5.08k   72.37k    64.00%
+    Latency    33.00us   31.37us   3.37ms   99.74%
+    Req/Sec   119.44k     4.59k  133.35k    76.74%
   Latency Distribution
-     50%   63.00us
-     75%   74.00us
-     90%   79.00us
-     99%   91.00us
-  1802525 requests in 30.00s, 244.10MB read
-Requests/sec:  60083.81
-Transfer/sec:      8.14MB
+     50%   32.00us
+     75%   34.00us
+     90%   37.00us
+     99%   46.00us
+  3576800 requests in 30.10s, 484.38MB read
+Requests/sec: 118831.54
+Transfer/sec:     16.09MB
 ```

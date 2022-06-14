@@ -5,11 +5,14 @@ use std::{
   fs::{self, File},
   io::{BufRead, BufReader, BufWriter, Cursor, Write},
   mem,
+  time::Duration,
 };
 
 use tiny_http::{Header, Method, Response, Server, StatusCode};
 use url::{ParseError, Url};
 use uuid::Uuid;
+
+mod threadpool;
 
 fn main() {
   // (url, token)
@@ -103,6 +106,9 @@ fn main() {
     .open("prm.txt")
     .unwrap();
 
+  let cpus = num_cpus::get();
+  let pool = threadpool::ThreadPool::new(4, cpus, Duration::from_secs(5));
+
   let server = Server::http("0.0.0.0:8000").unwrap();
   println!("Server listening on http://localhost:8000/");
 
@@ -122,7 +128,7 @@ fn main() {
       let url = match Url::parse(&url) {
         Ok(url) => url.to_string(),
         Err(err) => {
-          respond_with_error(request, url_parse_error_to_string(err), 400);
+          respond_with_error(&pool, request, url_parse_error_to_string(err), 400);
           continue;
         }
       };
@@ -132,7 +138,7 @@ fn main() {
 
       // write to file
       if writeln!(data_file, "{}{}", token, url).is_err() {
-        respond_with_error(request, "write-error", 500);
+        respond_with_error(&pool, request, "write-error", 500);
         continue;
       }
 
@@ -145,16 +151,19 @@ fn main() {
       // add to data
       data.push((url, token));
 
-      // respond
-      let json_len = json.len();
-      let res = Response::new(
-        StatusCode(200),
-        vec![Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap()],
-        Cursor::new(json.into_bytes()),
-        Some(json_len),
-        None,
-      );
-      let _ = request.respond(res);
+      pool.execute(move || {
+        // respond
+        let json_len = json.len();
+        let res = Response::new(
+          StatusCode(200),
+          vec![Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap()],
+          Cursor::new(json.into_bytes()),
+          Some(json_len),
+          None,
+        );
+        let _ = request.respond(res);
+      });
+
       continue;
     }
 
@@ -167,21 +176,21 @@ fn main() {
       let id_str = match elems.next() {
         Some(id_str) => id_str,
         None => {
-          respond_with_error(request, "invalid-id", 400);
+          respond_with_error(&pool, request, "invalid-id", 400);
           continue;
         }
       };
       let id = match decode_base36(id_str) {
         Some(id) => id,
         None => {
-          respond_with_error(request, "invalid-id", 400);
+          respond_with_error(&pool, request, "invalid-id", 400);
           continue;
         }
       };
       let token = match elems.next().and_then(|token| Uuid::parse_str(token).ok()) {
         Some(token) => token.to_string(),
         None => {
-          respond_with_error(request, "invalid-token", 400);
+          respond_with_error(&pool, request, "invalid-token", 400);
           continue;
         }
       };
@@ -190,35 +199,38 @@ fn main() {
       let item = match data.get(id as usize) {
         Some(item) => item,
         None => {
-          respond_with_error(request, "not-found", 400);
+          respond_with_error(&pool, request, "not-found", 400);
           continue;
         }
       };
 
       // if the token is incorrect, respond as invalid token
       if item.1 != token {
-        respond_with_error(request, "invalid-token", 400);
+        respond_with_error(&pool, request, "invalid-token", 400);
         continue;
       }
 
       // if url is empty, respond as not-found
       if item.0.is_empty() {
-        respond_with_error(request, "not-found", 400);
+        respond_with_error(&pool, request, "not-found", 400);
         continue;
       }
 
       // pending removal
       if writeln!(prm_file, "{}", id_str).is_err() {
-        respond_with_error(request, "write-error", 500);
+        respond_with_error(&pool, request, "write-error", 500);
         continue;
       }
 
       // replace url in data with empty string
       let (url, _) = mem::replace(&mut data[id as usize], ("".to_owned(), token));
 
-      // respond
-      let res = Response::from_string(url);
-      let _ = request.respond(res);
+      pool.execute(move || {
+        // respond
+        let res = Response::from_string(url);
+        let _ = request.respond(res);
+      });
+
       continue;
     }
 
@@ -229,7 +241,7 @@ fn main() {
       let id = match id {
         Some(id) => id,
         None => {
-          respond_with_error(request, "invalid-id", 400);
+          respond_with_error(&pool, request, "invalid-id", 400);
           continue;
         }
       };
@@ -238,14 +250,14 @@ fn main() {
       let item = match data.get(id as usize) {
         Some(url) => url,
         None => {
-          respond_with_error(request, "not-found", 404);
+          respond_with_error(&pool, request, "not-found", 404);
           continue;
         }
       };
 
       // if url is empty, respond as not-found
       if item.0.is_empty() {
-        respond_with_error(request, "not-found", 404);
+        respond_with_error(&pool, request, "not-found", 404);
         continue;
       }
 
@@ -253,14 +265,16 @@ fn main() {
       let location = match Header::from_bytes(b"Location".as_slice(), item.0.as_bytes()) {
         Ok(header) => header,
         Err(_) => {
-          respond_with_error(request, "invalid-url", 400);
+          respond_with_error(&pool, request, "invalid-url", 400);
           continue;
         }
       };
 
-      // respond
-      let res = Response::empty(StatusCode(302)).with_header(location);
-      let _ = request.respond(res);
+      pool.execute(move || {
+        // respond
+        let res = Response::empty(StatusCode(302)).with_header(location);
+        let _ = request.respond(res);
+      });
     }
   }
 }
@@ -300,9 +314,16 @@ fn encode_base36(n: u64) -> String {
   result.chars().rev().collect()
 }
 
-fn respond_with_error(request: tiny_http::Request, error: &str, code: u16) {
-  let res = Response::from_string(error).with_status_code(StatusCode(code));
-  let _ = request.respond(res);
+fn respond_with_error(
+  pool: &threadpool::ThreadPool,
+  request: tiny_http::Request,
+  error: &'static str,
+  code: u16,
+) {
+  pool.execute(move || {
+    let res = Response::from_string(error).with_status_code(StatusCode(code));
+    let _ = request.respond(res);
+  });
 }
 
 fn url_parse_error_to_string(err: ParseError) -> &'static str {
